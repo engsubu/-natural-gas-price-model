@@ -16,20 +16,20 @@ def load_and_train():
     """Load CSV, clean it, and fit Holt-Winters model"""
     path = "data/gas_prices.csv"
     
-    # 1. Load with YOUR column names
+    # 1. Load with YOUR column names: Dates, Prices
     df = pd.read_csv(path)
     df = df.rename(columns={"Dates": "Date", "Prices": "Price"})
     
-    # 2. Clean data
+    # 2. Clean data: handle 10/31/20 format + 1.01E+01 scientific notation
     df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%y")
     df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
     df = df.dropna().sort_values("Date")
     
-    # 3. Set monthly frequency. Holt-Winters needs this
-    df = df.set_index("Date").asfreq("ME")
+    # 3. Set monthly frequency. Pandas 2.0+ uses 'ME' not 'M'
+    df = df.set_index("Date").asfreq("ME") 
     df["Price"] = df["Price"].interpolate()
     
-    # 4. Fit model: additive trend + additive seasonality, period=12 for monthly
+    # 4. Fit Holt-Winters: additive trend + additive seasonality, period=12
     model = ExponentialSmoothing(
         df["Price"], 
         trend="add", 
@@ -55,7 +55,8 @@ months_ahead = st.sidebar.slider("Months to Forecast", 1, 24, 12)
 # Forecast
 forecast = model.forecast(months_ahead)
 last_date = df.index[-1]
-future_dates = pd.date_range(start=last_date + timedelta(days=31), periods=months_ahead, freq="M")
+# Pandas 2.0+ uses 'ME' not 'M'
+future_dates = pd.date_range(start=last_date + timedelta(days=1), periods=months_ahead, freq="ME") 
 forecast_df = pd.DataFrame({"Date": future_dates, "Forecast": forecast.values})
 
 # Plot
