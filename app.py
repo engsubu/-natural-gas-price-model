@@ -26,7 +26,7 @@ def load_and_train():
     df = df.dropna().sort_values("Date")
     
     # 3. Set monthly frequency. Holt-Winters needs this
-    df = df.set_index("Date").asfreq("M")
+    df = df.set_index("Date").asfreq("ME")
     df["Price"] = df["Price"].interpolate()
     
     # 4. Fit model: additive trend + additive seasonality, period=12 for monthly
