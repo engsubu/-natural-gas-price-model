@@ -3,69 +3,81 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from statsmodels.tsa.holtwinters import ExponentialSmoothing
-from datetime import datetime
-from dateutil.relativedelta import relativedelta
+from datetime import timedelta
+import warnings
+warnings.filterwarnings("ignore")
 
-st.set_page_config(page_title="Natural Gas Price Estimator", layout="wide")
-st.title("JPMC Task 1: Natural Gas Price Analysis")
+st.set_page_config(page_title="Natural Gas Price Model", layout="wide")
+st.title("📈 JPMorgan Task 1: Natural Gas Price Analysis")
+st.write("Holt-Winters model with 12-month seasonality to forecast future prices.")
 
 @st.cache_data
-def load_and_train(path="data/gas_prices.csv"):
-    df = pd.read_csv(path, parse_dates=["Date"])
-    df = df.sort_values("Date")
-    df = df.set_index("Date").asfreq("M") # Ensure monthly frequency
+def load_and_train():
+    """Load CSV, clean it, and fit Holt-Winters model"""
+    path = "data/gas_prices.csv"
     
-    # Fit Holt-Winters with trend + additive seasonality = 12 months
+    # 1. Load with YOUR column names
+    df = pd.read_csv(path)
+    df = df.rename(columns={"Dates": "Date", "Prices": "Price"})
+    
+    # 2. Clean data
+    df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%y")
+    df["Price"] = pd.to_numeric(df["Price"], errors="coerce")
+    df = df.dropna().sort_values("Date")
+    
+    # 3. Set monthly frequency. Holt-Winters needs this
+    df = df.set_index("Date").asfreq("M")
+    df["Price"] = df["Price"].interpolate()
+    
+    # 4. Fit model: additive trend + additive seasonality, period=12 for monthly
     model = ExponentialSmoothing(
-        df["Price"], trend="add", seasonal="add", seasonal_periods=12
-    ).fit()
+        df["Price"], 
+        trend="add", 
+        seasonal="add", 
+        seasonal_periods=12
+    ).fit(optimized=True)
+    
     return df, model
 
-def estimate_price(target_date, model, df):
-    last_date = df.index.max()
-    # Number of months to forecast
-    months_ahead = (target_date.year - last_date.year) * 12 + (target_date.month - last_date.month)
-    if months_ahead <= 0:
-        # If date is in historical range, just return actual/closest
-        return float(model.fittedvalues.asof(target_date))
-    forecast = model.forecast(steps=months_ahead)
-    return float(forecast.iloc[-1])
-
-# --- UI ---
 try:
     df, model = load_and_train()
 except FileNotFoundError:
-    st.error("`data/gas_prices.csv` not found. Upload the file to a `data/` folder in your repo.")
+    st.error("`data/gas_prices.csv` not found. Make sure the file is in a `data/` folder on GitHub.")
+    st.stop()
+except Exception as e:
+    st.error(f"Error loading data: {e}")
     st.stop()
 
-col1, col2 = st.columns(2)
+# Sidebar inputs
+st.sidebar.header("Forecast Settings")
+months_ahead = st.sidebar.slider("Months to Forecast", 1, 24, 12)
 
-with col1:
-    st.subheader("Historical + Forecast")
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(df.index, df["Price"], label="Historical")
-    
-    # Forecast next 12 months
-    future_dates = pd.date_range(df.index.max() + relativedelta(months=1), periods=12, freq="M")
-    forecast_vals = model.forecast(steps=12)
-    ax.plot(future_dates, forecast_vals, label="Forecast 12M", linestyle="--")
-    ax.legend()
-    ax.set_ylabel("Price")
-    ax.set_xlabel("Date")
-    st.pyplot(fig)
+# Forecast
+forecast = model.forecast(months_ahead)
+last_date = df.index[-1]
+future_dates = pd.date_range(start=last_date + timedelta(days=31), periods=months_ahead, freq="M")
+forecast_df = pd.DataFrame({"Date": future_dates, "Forecast": forecast.values})
 
-with col2:
-    st.subheader("Estimate Price for Any Date")
-    input_date = st.date_input(
-        "Pick a date", 
-        value=df.index.max() + relativedelta(months=6),
-        min_value=df.index.min().date(),
-        max_value=(df.index.max() + relativedelta(months=12)).date()
-    )
-    
-    if st.button("Estimate"):
-        est = estimate_price(pd.to_datetime(input_date), model, df)
-        st.metric(label=f"Estimated Price on {input_date}", value=f"${est:.2f}")
+# Plot
+fig, ax = plt.subplots(figsize=(10, 5))
+ax.plot(df.index, df["Price"], label="Historical Price", linewidth=2)
+ax.plot(forecast_df["Date"], forecast_df["Forecast"], label="Forecast", linestyle="--", linewidth=2)
+ax.set_xlabel("Date")
+ax.set_ylabel("Price $/MMBtu")
+ax.set_title("Natural Gas Price: Historical + Forecast")
+ax.legend()
+ax.grid(alpha=0.3)
+st.pyplot(fig)
 
-st.subheader("Key Insight")
-st.write("Model uses 12-month seasonality. Natural gas typically peaks in winter due to heating demand.")
+# Table + Metrics
+st.subheader(f"Next {months_ahead} Month Forecast")
+forecast_df["Date"] = forecast_df["Date"].dt.strftime("%b %Y")
+forecast_df["Forecast"] = forecast_df["Forecast"].round(2)
+st.dataframe(forecast_df, use_container_width=True, hide_index=True)
+
+col1, col2, col3 = st.columns(3)
+col1.metric("Last Actual Price", f"${df['Price'].iloc[-1]:.2f}")
+col2.metric(f"{months_ahead}M Forecast", f"${forecast.iloc[-1]:.2f}")
+col3.metric("Avg Forecast", f"${forecast.mean():.2f}")
+
+st.caption("Model: Holt-Winters Exponential Smoothing with 12-month seasonality")
