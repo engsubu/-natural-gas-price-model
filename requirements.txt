@@ -1,4 +1,6 @@
-pandas
-numpy
-matplotlib
-scikit-learn
+    streamlit
+    pandas
+    numpy
+    matplotlib
+    statsmodels
+    python-dateutil
